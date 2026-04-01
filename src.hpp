@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 
-typedef std::vector<std::vector<double>> IMAGE_T;
+typedef std::vector<std::vector<double> > IMAGE_T;
 
 namespace nr_heuristic {
 
@@ -51,7 +51,7 @@ static double otsu_threshold(const IMAGE_T &img){
     return (double)best_t / (bins-1);
 }
 
-static BBox find_bbox(const std::vector<std::vector<uint8_t>> &bin){
+static BBox find_bbox(const std::vector<std::vector<uint8_t> > &bin){
     int H = (int)bin.size(); int W = H? (int)bin[0].size():0;
     int r0=H, c0=W, r1=-1, c1=-1;
     for(int r=0;r<H;++r){
@@ -65,7 +65,7 @@ static BBox find_bbox(const std::vector<std::vector<uint8_t>> &bin){
     return {r0,c0,r1,c1};
 }
 
-static int count_holes(const std::vector<std::vector<uint8_t>> &bin, const BBox &b){
+static int count_holes(const std::vector<std::vector<uint8_t> > &bin, const BBox &b){
     // Count background components inside bbox that do NOT touch bbox border
     int H = (int)bin.size(); int W = H? (int)bin[0].size():0;
     if(H==0||W==0) return 0;
@@ -113,7 +113,7 @@ struct Features{
     double mid_hband_ratio;
 };
 
-static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
+static Features compute_features(const std::vector<std::vector<uint8_t> > &bin){
     int H=(int)bin.size(); int W=H? (int)bin[0].size():0;
     Features f{}; if(H==0||W==0){ return f; }
     BBox b = find_bbox(bin);
@@ -162,7 +162,7 @@ static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
     return f;
 }
 
-static int classify_with_rules(const std::vector<std::vector<uint8_t>> &bin){
+static int classify_with_rules(const std::vector<std::vector<uint8_t> > &bin){
     Features f = compute_features(bin);
 
     if(f.holes >= 2){
@@ -208,7 +208,7 @@ static int classify_with_rules(const std::vector<std::vector<uint8_t>> &bin){
 int judge(IMAGE_T &img){
     int H = (int)img.size(); if(H==0) return 0; int W = (int)img[0].size(); if(W==0) return 0;
     double t = nr_heuristic::otsu_threshold(img);
-    std::vector<std::vector<uint8_t>> bin(H, std::vector<uint8_t>(W, 0));
+    std::vector<std::vector<uint8_t> > bin(H, std::vector<uint8_t>(W, 0));
     for(int r=0;r<H;++r){
         for(int c=0;c<W;++c){
             double v = nr_heuristic::clamp01(img[r][c]);
@@ -225,4 +225,3 @@ int judge(IMAGE_T &img){
 }
 
 #endif // SRC_HPP_HEURISTIC_JUDGE_030
-
