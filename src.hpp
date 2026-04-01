@@ -30,9 +30,7 @@ static double otsu_threshold(const IMAGE_T &img){
             hist[b] += 1.0;
         }
     }
-    // Normalize to probabilities
     for(int i=0;i<bins;++i) hist[i] /= total;
-    // cumulative sums and means
     std::vector<double> P(bins,0.0), M(bins,0.0);
     double mG = 0.0;
     for(int i=0;i<bins;++i){
@@ -105,14 +103,14 @@ static int count_holes(const std::vector<std::vector<uint8_t>> &bin, const BBox 
 }
 
 struct Features{
-    double density; // foreground density in bbox
-    double aspect;  // w/h
-    int holes;      // number of holes
-    double cx, cy;  // centroid (0..1) within bbox (x:col, y:row)
-    double top_ratio, bottom_ratio, left_ratio, right_ratio; // mass ratios per half
-    double q[4];    // quadrants TL, TR, BL, BR ratios
-    double top_band_ratio; // top 20% band mass / total
-    double mid_hband_ratio; // middle horizontal band (40-60%)
+    double density;
+    double aspect;
+    int holes;
+    double cx, cy;
+    double top_ratio, bottom_ratio, left_ratio, right_ratio;
+    double q[4];
+    double top_band_ratio;
+    double mid_hband_ratio;
 };
 
 static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
@@ -126,14 +124,13 @@ static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
             if(bin[r][c]){ total+=1.0; sumr += (r-b.r0); sumc += (c-b.c0); }
         }
     }
-    if(total<=0.0){ f.density=0.0; f.aspect= (double)w/std::max(1,w? h:1); f.holes=0; f.cx=0.5; f.cy=0.5; return f; }
+    if(total<=0.0){ f.density=0.0; f.aspect= (double)w/std::max(1,h); f.holes=0; f.cx=0.5; f.cy=0.5; return f; }
     f.density = total / (w*h);
     f.aspect = (double)w / (double)h;
     f.holes = count_holes(bin, b);
     f.cx = sumc / total / std::max(1,w-1);
     f.cy = sumr / total / std::max(1,h-1);
 
-    // half mass
     double top=0,bottom=0,left=0,right=0;
     int r_mid = b.r0 + h/2;
     int c_mid = b.c0 + w/2;
@@ -150,7 +147,6 @@ static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
     f.top_ratio = top/total; f.bottom_ratio=bottom/total; f.left_ratio=left/total; f.right_ratio=right/total;
     for(int i=0;i<4;++i) f.q[i] = qsum[i]/total;
 
-    // top band 20% and mid horizontal band 40-60%
     int top_h = std::max(1, (int)std::floor(0.2*h));
     int mid0 = b.r0 + (int)std::floor(0.4*h);
     int mid1 = b.r0 + (int)std::ceil(0.6*h);
@@ -169,64 +165,48 @@ static Features compute_features(const std::vector<std::vector<uint8_t>> &bin){
 static int classify_with_rules(const std::vector<std::vector<uint8_t>> &bin){
     Features f = compute_features(bin);
 
-    // Rule: holes
     if(f.holes >= 2){
         return 8;
     }
     if(f.holes == 1){
-        // Distinguish 6/9/0 by hole position and mass distribution
-        // Approximate: 9 has upper hole (top-heavy), 6 has lower hole (bottom-heavy), 0 has balanced
         if(f.top_ratio - f.bottom_ratio > 0.15) return 9;
         if(f.bottom_ratio - f.top_ratio > 0.15) return 6;
-        // fallback by aspect: 0 tends to be roundish
         if(std::abs(f.aspect - 1.0) < 0.2) return 0;
-        // fallback by centroid y
         if(f.cy < 0.5) return 9; else return 6;
     }
 
-    // Rule: digit 1 - slender vertical
     if(f.aspect < 0.55 && std::abs(f.cx - 0.5) < 0.12 && f.density < 0.6){
         return 1;
     }
 
-    // Rule: 7 - strong top bar, sparse bottom
     if(f.top_band_ratio > 0.34 && f.bottom_ratio < 0.48 && f.right_ratio > f.left_ratio){
         return 7;
     }
 
-    // Rule: 4 - strong mid horizontal band and upper-right mass; bottom-left sparse
     if(f.mid_hband_ratio > 0.26 && f.q[1] > f.q[0] && f.q[2] < 0.18){
         return 4;
     }
 
-    // Distinguish 2/3/5/0 (no holes variant unlikely)
-    // Heuristics based on quadrant mass distribution
-    // 3: right-heavy, bottom-left sparse
     if( (f.right_ratio - f.left_ratio) > 0.18 && f.q[2] < 0.16 ){
         return 3;
     }
-    // 5: top-left + bottom-left stronger than right-bottom; noticeable top band
     if( f.q[2] > f.q[3] + 0.06 && f.top_band_ratio > 0.25 ){
         return 5;
     }
-    // 2: top > bottom and bottom-right dominates bottom-left
     if( f.top_ratio > f.bottom_ratio && (f.q[3] - f.q[2]) > 0.04 ){
         return 2;
     }
 
-    // Fallbacks: guess by aspect and density to a plausible class
     if(f.density > 0.55 && std::abs(f.aspect-1.0) < 0.25) return 0;
-    if(f.right_ratio > f.left_ratio + 0.1) return 9; // often right-heavy shapes
+    if(f.right_ratio > f.left_ratio + 0.1) return 9;
     if(f.top_ratio > f.bottom_ratio + 0.1) return 7;
-    return 2; // neutral fallback
+    return 2;
 }
 
 } // namespace nr_heuristic
 
-// Public API: judge
 int judge(IMAGE_T &img){
     int H = (int)img.size(); if(H==0) return 0; int W = (int)img[0].size(); if(W==0) return 0;
-    // Binarize using Otsu threshold (digits are white on black)
     double t = nr_heuristic::otsu_threshold(img);
     std::vector<std::vector<uint8_t>> bin(H, std::vector<uint8_t>(W, 0));
     for(int r=0;r<H;++r){
@@ -235,10 +215,8 @@ int judge(IMAGE_T &img){
             bin[r][c] = (uint8_t)(v >= t ? 1 : 0);
         }
     }
-    // Safety: ensure some foreground exists; if none, try a lower threshold
     bool any=false; for(int r=0;r<H && !any;++r) for(int c=0;c<W;++c) if(bin[r][c]) { any=true; break; }
     if(!any){
-        // fallback to mean threshold 0.5
         for(int r=0;r<H;++r) for(int c=0;c<W;++c) bin[r][c] = (uint8_t)(img[r][c] >= 0.5 ? 1 : 0);
     }
     int pred = nr_heuristic::classify_with_rules(bin);
